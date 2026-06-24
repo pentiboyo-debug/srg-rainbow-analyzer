@@ -142,7 +142,6 @@ with tab1:
                             k_ext_mag = math.sqrt(k_x_ext**2 + k_y_ext**2)
                             
                             if k_ext_mag <= k0:
-                                # [수정 완정 패치 적용 파트] 상단에 독립 변수를 사전 할당하여 문법 구문 완전 안정화
                                 if m_mult == 2.0:
                                     k_x_mid = k_x_per - m_order * G_x
                                     k_y_mid = k_y_per - m_order * G_y
@@ -174,17 +173,19 @@ with tab1:
                                 
                 if src_x:
                     has_any_data = True
+                    # [Fixed Line 181] %{{ }} 포맷 닫기 쌍 오류 완벽 디버깅 패치
                     fig_src.add_trace(go.Scatter(x=src_x, y=src_y, mode='markers', 
                                                  marker=dict(size=2.5 if m_mult==1.0 else 3.5, color=rgb_color, symbol='circle' if m_mult==1.0 else 'diamond'), 
                                                  name=f"{wl:.0f}nm ({lbl})",
                                                  customdata=np.stack((eye_x, eye_y), axis=-1),
-                                                 hovertemplate=f"<b>[{lbl} Path]</b><br><b>Source Position:</b> X:%{{x:.1f}}°, Y:%{{y:.1f}}°<br><b>Retinal Inflow Angle:</b> H:%{{customdata[0]:.1f}°, V:%{{customdata[1]:.1f}}°<br><b>Matched WL:</b> %{{text}}<br><extra></extra>", text=[f"{wl:.0f} nm"]*len(src_x), showlegend=False))
+                                                 hovertemplate=f"<b>[{lbl} Path]</b><br><b>Source Position:</b> X:%{{x:.1f}}°, Y:%{{y:.1f}}°<br><b>Retinal Inflow Angle:</b> H:%{{customdata[0]:.1f}}°, V:%{{customdata[1]:.1f}}°<br><b>Matched WL:</b> %{{text}}<br><extra></extra>", text=[f"{wl:.0f} nm"]*len(src_x), showlegend=False))
                     
+                    # [Fixed Line 186] 대칭 변수 매칭 가이드 정상화
                     fig_eye.add_trace(go.Scatter(x=eye_x, y=eye_y, mode='markers', 
                                                  marker=dict(size=3.0 if m_mult==1.0 else 4.0, color=rgb_color, symbol='circle' if m_mult==1.0 else 'diamond'), 
                                                  name=f"{wl:.0f}nm ({lbl})",
                                                  customdata=np.stack((src_x, src_y), axis=-1),
-                                                 hovertemplate=f"<b>[{lbl} Path]</b><br><b>Retinal Inflow Position:</b> H:%{{x:.1f}}°, V:%{{y:.1f}}°<br><b>Causal Ambient Source:</b> X:%{{customdata[0]:.1f}°, Y:%{{customdata[1]:.1f} °<br><b>Artifact Color:</b> %{{text}}<br><extra></extra>", text=[f"{wl:.0f} nm"]*len(eye_x), showlegend=False))
+                                                 hovertemplate=f"<b>[{lbl} Path]</b><br><b>Retinal Inflow Position:</b> H:%{{x:.1f}}°, V:%{{y:.1f}}°<br><b>Causal Ambient Source:</b> X:%{{customdata[0]:.1f}}°, Y:%{{customdata[1]:.1f}}°<br><b>Artifact Color:</b> %{{text}}<br><extra></extra>", text=[f"{wl:.0f} nm"]*len(eye_x), showlegend=False))
         
         if not has_any_data and sim_mode == "Coverwindow Reflection Mode":
             st.warning("⚠️ No ghost light rays detected within the pupil aperture field. Try expanding the Eye Pupil Diameter or narrowing down thickness layers.")
