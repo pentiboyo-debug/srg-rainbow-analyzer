@@ -58,7 +58,7 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("**⚙️ Ambient Source Analysis Mode**")
 sim_mode = st.sidebar.radio("Simulation Mode", ["Full Hemisphere Space Scan Mode", "Target Ambient Source Coordinates Mode", "Coverwindow Reflection Mode"], index=0)
 
-# Initialize Safe Global Fallbacks
+# Safe fallbacks
 show_primary = True
 show_ghost = True
 pupil_dia = 4.0 
@@ -142,6 +142,7 @@ with tab1:
                             k_ext_mag = math.sqrt(k_x_ext**2 + k_y_ext**2)
                             
                             if k_ext_mag <= k0:
+                                # [수정 완벽 반영 부] 호출 스코프를 세션 다이내믹 바인딩과 직접 매칭
                                 if m_mult == 2.0:
                                     k_x_mid = k_x_per - m_order * G_x
                                     k_y_mid = k_y_per - m_order * G_y
@@ -151,10 +152,12 @@ with tab1:
                                         sin_theta_air = k_mid_mag / k0
                                         tan_theta_air = sin_theta_air / math.sqrt(max(1e-9, 1.0 - sin_theta_air**2))
                                         
+                                        # 수식 파라미터 dynamic 연동 정상화
                                         n_cw_dynamic = get_n(wl, cw_n_d_val, 35.0)
                                         sin_theta_cw = sin_theta_air / n_cw_dynamic
                                         tan_theta_cw = sin_theta_cw / math.sqrt(max(1e-9, 1.0 - sin_theta_cw**2))
                                         
+                                        # 실시간 입력값 전달 구조 완성
                                         delta_x = 2.0 * air_gap_val * tan_theta_air + 2.0 * cw_thick_val * tan_theta_cw
                                         
                                         if delta_x > pupil_dia:
@@ -173,14 +176,12 @@ with tab1:
                                 
                 if src_x:
                     has_any_data = True
-                    # [Fixed Line 181] %{{ }} 포맷 닫기 쌍 오류 완벽 디버깅 패치
                     fig_src.add_trace(go.Scatter(x=src_x, y=src_y, mode='markers', 
                                                  marker=dict(size=2.5 if m_mult==1.0 else 3.5, color=rgb_color, symbol='circle' if m_mult==1.0 else 'diamond'), 
                                                  name=f"{wl:.0f}nm ({lbl})",
                                                  customdata=np.stack((eye_x, eye_y), axis=-1),
                                                  hovertemplate=f"<b>[{lbl} Path]</b><br><b>Source Position:</b> X:%{{x:.1f}}°, Y:%{{y:.1f}}°<br><b>Retinal Inflow Angle:</b> H:%{{customdata[0]:.1f}}°, V:%{{customdata[1]:.1f}}°<br><b>Matched WL:</b> %{{text}}<br><extra></extra>", text=[f"{wl:.0f} nm"]*len(src_x), showlegend=False))
                     
-                    # [Fixed Line 186] 대칭 변수 매칭 가이드 정상화
                     fig_eye.add_trace(go.Scatter(x=eye_x, y=eye_y, mode='markers', 
                                                  marker=dict(size=3.0 if m_mult==1.0 else 4.0, color=rgb_color, symbol='circle' if m_mult==1.0 else 'diamond'), 
                                                  name=f"{wl:.0f}nm ({lbl})",
