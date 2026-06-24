@@ -58,12 +58,23 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("**⚙️ Ambient Source Analysis Mode**")
 sim_mode = st.sidebar.radio("Simulation Mode", ["Full Hemisphere Space Scan Mode", "Target Ambient Source Coordinates Mode", "Coverwindow Reflection Mode"], index=0)
 
-# [New Feature] Coverwindow Specification UI Panel
+# Initialize on/off flags
+show_primary = True
+show_ghost = True
+
 if sim_mode == "Coverwindow Reflection Mode":
+    st.sidebar.markdown("---")
     st.sidebar.markdown("🪟 **[Coverwindow Spec] Ghost Path Setup**")
     cw_n_d = dual_input("Coverwindow Index (n_d)", 1.0, 3.0, 1.52, 0.01, "cw_n_d", "%.2f")
     cw_thick = dual_input("Coverwindow Thickness (mm)", 0.1, 5.0, 1.0, 0.05, "cw_thick", "%.2f")
+    
+    # [New Requirement] On/Off Display Toggles for Multi-Path Ray Separation
+    st.sidebar.markdown("**🎨 Layer Display Selection**")
+    show_primary = st.sidebar.checkbox("Show 1st-Order Primary Rainbow", value=True)
+    show_ghost = st.sidebar.checkbox("Show 2nd-Order Window Ghost Rainbow", value=True)
+    
 elif sim_mode == "Target Ambient Source Coordinates Mode":
+    st.sidebar.markdown("---")
     st.sidebar.markdown("🔴 **[Mode 2] Target Source Setup**")
     src_spec_x = dual_input("Source Horizontal Incident Angle (X, °)", -90.0, 90.0, -45.0, 0.1, "src_spec_x", "%.1f")
     src_spec_y = dual_input("Source Vertical Incident Angle (Y, °)", -90.0, 90.0, 15.0, 0.1, "src_spec_y", "%.1f")
@@ -98,43 +109,62 @@ with tab1:
     G_y = G_mag * math.sin(math.radians(angle_oc))
     
     if sim_mode in ["Full Hemisphere Space Scan Mode", "Coverwindow Reflection Mode"]:
-        # Coverwindow 모드일 경우 격자를 2번 맞는 고차 회절 승수 계산을 위해 m_multiplier 제어 (고스트 수식 대입)
-        m_mult = 2.0 if sim_mode == "Coverwindow Reflection Mode" else 1.0
+        has_any_data = False
         
-        for wl in wavelengths:
-            k0 = 2 * math.pi / wl
-            rgb_color = wl_to_rgb(wl)
-            src_x, src_y, eye_x, eye_y = [], [], [], []
+        # 가시화 활성화된 패스 목록 조립 (1차, 2차 고스트 분리 루프 엔진)
+        active_paths = []
+        if sim_mode == "Full Hemisphere Space Scan Mode":
+            active_paths.append({"mult": 1.0, "label": "Primary"})
+        else:
+            if show_primary: active_paths.append({"mult": 1.0, "label": "Primary"})
+            if show_ghost: active_paths.append({"mult": 2.0, "label": "Window Ghost"})
             
-            for p_x in p_angles:
-                for p_y in p_angles:
-                    if p_x**2 + p_y**2 <= peripheral_limit_deg**2:
-                        k_x_per = k0 * math.sin(math.radians(p_x))
-                        k_y_per = k0 * math.sin(math.radians(p_y))
-                        
-                        # 역방향 고스트 회절 수식 대입 (k_ext = k_per - m_mult * m * G)
-                        k_x_ext = k_x_per - m_mult * m_order * G_x
-                        k_y_ext = k_y_per - m_mult * m_order * G_y
-                        k_ext_mag = math.sqrt(k_x_ext**2 + k_y_ext**2)
-                        
-                        if k_ext_mag <= k0:
-                            sin_theta_ext = k_ext_mag / k0
-                            theta_ext_deg = np.degrees(math.asin(sin_theta_ext))
-                            phi_ext = math.atan2(k_y_ext, k_x_ext)
-                            
-                            src_x.append(theta_ext_deg * math.cos(phi_ext))
-                            src_y.append(theta_ext_deg * math.sin(phi_ext))
-                            eye_x.append(p_x)
-                            eye_y.append(p_y)
-                            
-            if src_x:
-                fig_src.add_trace(go.Scatter(x=src_x, y=src_y, mode='markers', marker=dict(size=2.5, color=rgb_color), name=f"{wl:.0f}nm",
-                                             customdata=np.stack((eye_x, eye_y), axis=-1),
-                                             hovertemplate="<b>Source Position:</b> X:%{x:.1f}°, Y:%{y:.1f}°<br><b>Retinal Inflow Angle:</b> H:%{customdata[0]:.1f}°, V:%{customdata[1]:.1f}°<br><b>Matched WL:</b> %{text}<br><extra></extra>", text=[f"{wl:.0f} nm"]*len(src_x), showlegend=False))
+        for path in active_paths:
+            m_mult = path["mult"]
+            lbl = path["label"]
+            
+            for wl in wavelengths:
+                k0 = 2 * math.pi / wl
+                rgb_color = wl_to_rgb(wl)
+                src_x, src_y, eye_x, eye_y = [], [], [], []
                 
-                fig_eye.add_trace(go.Scatter(x=eye_x, y=eye_y, mode='markers', marker=dict(size=3.0, color=rgb_color), name=f"{wl:.0f}nm",
-                                             customdata=np.stack((src_x, src_y), axis=-1),
-                                             hovertemplate="<b>Retinal Inflow Position:</b> H:%{x:.1f}°, V:%{y:.1f}°<br><b>Causal Ambient Source:</b> X:%{customdata[0]:.1f}°, Y:%{customdata[1]:.1f}°<br><b>Artifact Color:</b> %{text}<br><extra></extra>", text=[f"{wl:.0f} nm"]*len(eye_x), showlegend=False))
+                for p_x in p_angles:
+                    for p_y in p_angles:
+                        if p_x**2 + p_y**2 <= peripheral_limit_deg**2:
+                            k_x_per = k0 * math.sin(math.radians(p_x))
+                            k_y_per = k0 * math.sin(math.radians(p_y))
+                            
+                            k_x_ext = k_x_per - m_mult * m_order * G_x
+                            k_y_ext = k_y_per - m_mult * m_order * G_y
+                            k_ext_mag = math.sqrt(k_x_ext**2 + k_y_ext**2)
+                            
+                            if k_ext_mag <= k0:
+                                sin_theta_ext = k_ext_mag / k0
+                                theta_ext_deg = np.degrees(math.asin(sin_theta_ext))
+                                phi_ext = math.atan2(k_y_ext, k_x_ext)
+                                
+                                src_x.append(theta_ext_deg * math.cos(phi_ext))
+                                src_y.append(theta_ext_deg * math.sin(phi_ext))
+                                eye_x.append(p_x)
+                                eye_y.append(p_y)
+                                
+                if src_x:
+                    has_any_data = True
+                    # 고스트광과 기본광을 호버 팁에서 시각적으로 분별 가능하도록 가이드 문구 매칭
+                    fig_src.add_trace(go.Scatter(x=src_x, y=src_y, mode='markers', 
+                                                 marker=dict(size=2.5 if m_mult==1.0 else 3.5, color=rgb_color, symbol='circle' if m_mult==1.0 else 'diamond'), 
+                                                 name=f"{wl:.0f}nm ({lbl})",
+                                                 customdata=np.stack((eye_x, eye_y), axis=-1),
+                                                 hovertemplate=f"<b>[{lbl} Path]</b><br><b>Source Position:</b> X:%{{x:.1f}}°, Y:%{{y:.1f}}°<br><b>Retinal Inflow Angle:</b> H:%{{customdata[0]:.1f}}°, V:%{{customdata[1]:.1f}}°<br><b>Matched WL:</b> %{{text}}<br><extra></extra>", text=[f"{wl:.0f} nm"]*len(src_x), showlegend=False))
+                    
+                    fig_eye.add_trace(go.Scatter(x=eye_x, y=eye_y, mode='markers', 
+                                                 marker=dict(size=3.0 if m_mult==1.0 else 4.0, color=rgb_color, symbol='circle' if m_mult==1.0 else 'diamond'), 
+                                                 name=f"{wl:.0f}nm ({lbl})",
+                                                 customdata=np.stack((src_x, src_y), axis=-1),
+                                                 hovertemplate=f"<b>[{lbl} Path]</b><br><b>Retinal Inflow Position:</b> H:%{{x:.1f}}°, V:%{{y:.1f}}°<br><b>Causal Ambient Source:</b> X:%{{customdata[0]:.1f}}°, Y:%{{customdata[1]:.1f}}°<br><b>Artifact Color:</b> %{{text}}<br><extra></extra>", text=[f"{wl:.0f} nm"]*len(eye_x), showlegend=False))
+        
+        if not has_any_data and sim_mode == "Coverwindow Reflection Mode":
+            st.warning("⚠️ 선택한 레이어 필터 또는 현재 사양 하위에서 매칭되는 회절 광선 경로가 존재하지 않습니다.")
     
     else:
         for wl in wavelengths:
@@ -186,9 +216,14 @@ with tab2:
     pitch_arr = np.arange(250.0, 500.0, 2.0)
     sweep_results = []
     
-    # Sweep 연산 시에도 현재 선택된 모드(Coverwindow 고스트 여부)의 회절 차수 승수를 동적 연동하여 마진 버퍼 통합 추적
-    m_mult_sweep = 2.0 if sim_mode == "Coverwindow Reflection Mode" else 1.0
-    
+    # 마진 스윕 연산 스펙도 선택된 레이어들의 다중 전이 조건을 통합 반영하여 동적 스위칭 추적
+    sweep_mults = []
+    if sim_mode == "Full Hemisphere Space Scan Mode":
+        sweep_mults.append(1.0)
+    else:
+        if show_primary: sweep_mults.append(1.0)
+        if show_ghost: sweep_mults.append(2.0)
+        
     for p in pitch_arr:
         noise_count = 0
         G_m = 2 * math.pi / p
@@ -200,9 +235,12 @@ with tab2:
             for p_x in np.arange(-60.0, 61.0, 6.0):
                 for p_y in np.arange(-60.0, 61.0, 6.0):
                     if p_x**2 + p_y**2 <= peripheral_limit_deg**2:
-                        if math.sqrt((k0_m * math.sin(math.radians(p_x)) - m_mult_sweep * m_order * G_x_m)**2 + (k0_m * math.sin(math.radians(p_y)) - m_mult_sweep * m_order * G_y_m)**2) <= k0_m:
-                            has_noise = True
-                            break
+                        # 활성화된 모든 패스 조건에 대해 스크리닝
+                        for m_m in sweep_mults:
+                            if math.sqrt((k0_m * math.sin(math.radians(p_x)) - m_m * m_order * G_x_m)**2 + (k0_m * math.sin(math.radians(p_y)) - m_m * m_order * G_y_m)**2) <= k0_m:
+                                has_noise = True
+                                break
+                        if has_noise: break
                 if has_noise: break
             if has_noise: noise_count += 1
         sweep_results.append({"Pitch (nm)": p, "Noise Color Density": noise_count})
