@@ -58,17 +58,20 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("**⚙️ Ambient Source Analysis Mode**")
 sim_mode = st.sidebar.radio("Simulation Mode", ["Full Hemisphere Space Scan Mode", "Target Ambient Source Coordinates Mode", "Coverwindow Reflection Mode"], index=0)
 
-# Initialize global hardware parameters for standard modes
+# Initialize Safe Global Fallbacks
 show_primary = True
 show_ghost = True
 pupil_dia = 4.0 
+cw_n_d_val = 1.52
+cw_thick_val = 1.1
+air_gap_val = 0.5
 
 if sim_mode == "Coverwindow Reflection Mode":
     st.sidebar.markdown("---")
     st.sidebar.markdown("🪟 **[Coverwindow Spec] Ghost Path Setup**")
-    cw_n_d = dual_input("Coverwindow Index (n_d)", 1.0, 3.0, 1.52, 0.01, "cw_n_d", "%.2f")
-    cw_thick = dual_input("Coverwindow Thickness (mm)", 0.1, 5.0, 1.1, 0.05, "cw_thick", "%.2f")
-    air_gap = dual_input("Air-gap Distance (mm)", 0.05, 5.0, 0.5, 0.05, "air_gap", "%.2f")
+    cw_n_d_val = dual_input("Coverwindow Index (n_d)", 1.0, 3.0, 1.52, 0.01, "cw_n_d", "%.2f")
+    cw_thick_val = dual_input("Coverwindow Thickness (mm)", 0.1, 5.0, 1.1, 0.05, "cw_thick", "%.2f")
+    air_gap_val = dual_input("Air-gap Distance (mm)", 0.05, 5.0, 0.5, 0.05, "air_gap", "%.2f")
     pupil_dia = dual_input("Eye Pupil Diameter (mm)", 1.5, 7.0, 4.0, 0.1, "pupil_dia", "%.1f")
     
     st.sidebar.markdown("**🎨 Layer Display Selection**")
@@ -139,28 +142,22 @@ with tab1:
                             k_ext_mag = math.sqrt(k_x_ext**2 + k_y_ext**2)
                             
                             if k_ext_mag <= k0:
-                                # [물리 엔진 업그레이드] Ghost Path에 기하학적 공간 필터 조건(Spatial Aperture Filter) 주입
+                                # [수정 완정 패치 적용 파트] 상단에 독립 변수를 사전 할당하여 문법 구문 완전 안정화
                                 if m_mult == 2.0:
-                                    # 중간 경로(1차 회절 각도)에서의 굴절각 추적 및 변위량 산출
                                     k_x_mid = k_x_per - m_order * G_x
                                     k_y_mid = k_y_per - m_order * G_y
                                     k_mid_mag = math.sqrt(k_x_mid**2 + k_y_mid**2)
                                     
                                     if k_mid_mag <= k0:
-                                        # 에어갭 및 윈도우 글래스 매질 내에서의 기울기 탄젠트 계산
                                         sin_theta_air = k_mid_mag / k0
                                         tan_theta_air = sin_theta_air / math.sqrt(max(1e-9, 1.0 - sin_theta_air**2))
                                         
-                                        n_cw_dynamic = get_n(wl, st.session_state.get("cw_n_d_slider", 1.52), 35.0)
+                                        n_cw_dynamic = get_n(wl, cw_n_d_val, 35.0)
                                         sin_theta_cw = sin_theta_air / n_cw_dynamic
                                         tan_theta_cw = sin_theta_cw / math.sqrt(max(1e-9, 1.0 - sin_theta_cw**2))
                                         
-                                        # 총 발생 횡변위(Spatial Ray Displacement) 계산
-                                        t_air = st.session_state.get("air_gap_slider", 0.5)
-                                        t_cw = st.session_state.get("cw_thick_slider", 1.0)
-                                        delta_x = 2.0 * t_air * tan_theta_air + 2.0 * t_cw * tan_theta_cw
+                                        delta_x = 2.0 * air_gap_val * tan_theta_air + 2.0 * cw_thick_val * tan_theta_cw
                                         
-                                        # 횡변위가 유효 동공 지름(Spatial Window)을 벗어나면 눈으로 안 들어오고 탈락됨
                                         if delta_x > pupil_dia:
                                             continue
                                     else:
@@ -181,13 +178,13 @@ with tab1:
                                                  marker=dict(size=2.5 if m_mult==1.0 else 3.5, color=rgb_color, symbol='circle' if m_mult==1.0 else 'diamond'), 
                                                  name=f"{wl:.0f}nm ({lbl})",
                                                  customdata=np.stack((eye_x, eye_y), axis=-1),
-                                                 hovertemplate=f"<b>[{lbl} Path]</b><br><b>Source Position:</b> X:%{{x:.1f}}°, Y:%{{y:.1f}}°<br><b>Retinal Inflow Angle:</b> H:%{{customdata[0]:.1f}}°, V:%{{customdata[1]:.1f}}°<br><b>Matched WL:</b> %{{text}}<br><extra></extra>", text=[f"{wl:.0f} nm"]*len(src_x), showlegend=False))
+                                                 hovertemplate=f"<b>[{lbl} Path]</b><br><b>Source Position:</b> X:%{{x:.1f}}°, Y:%{{y:.1f}}°<br><b>Retinal Inflow Angle:</b> H:%{{customdata[0]:.1f}°, V:%{{customdata[1]:.1f}}°<br><b>Matched WL:</b> %{{text}}<br><extra></extra>", text=[f"{wl:.0f} nm"]*len(src_x), showlegend=False))
                     
                     fig_eye.add_trace(go.Scatter(x=eye_x, y=eye_y, mode='markers', 
                                                  marker=dict(size=3.0 if m_mult==1.0 else 4.0, color=rgb_color, symbol='circle' if m_mult==1.0 else 'diamond'), 
                                                  name=f"{wl:.0f}nm ({lbl})",
                                                  customdata=np.stack((src_x, src_y), axis=-1),
-                                                 hovertemplate=f"<b>[{lbl} Path]</b><br><b>Retinal Inflow Position:</b> H:%{{x:.1f}}°, V:%{{y:.1f}}°<br><b>Causal Ambient Source:</b> X:%{{customdata[0]:.1f}°, Y:%{{customdata[1]:.1f}°<br><b>Artifact Color:</b> %{{text}}<br><extra></extra>", text=[f"{wl:.0f} nm"]*len(eye_x), showlegend=False))
+                                                 hovertemplate=f"<b>[{lbl} Path]</b><br><b>Retinal Inflow Position:</b> H:%{{x:.1f}}°, V:%{{y:.1f}}°<br><b>Causal Ambient Source:</b> X:%{{customdata[0]:.1f}°, Y:%{{customdata[1]:.1f} °<br><b>Artifact Color:</b> %{{text}}<br><extra></extra>", text=[f"{wl:.0f} nm"]*len(eye_x), showlegend=False))
         
         if not has_any_data and sim_mode == "Coverwindow Reflection Mode":
             st.warning("⚠️ No ghost light rays detected within the pupil aperture field. Try expanding the Eye Pupil Diameter or narrowing down thickness layers.")
@@ -260,7 +257,6 @@ with tab2:
                 for p_y in np.arange(-60.0, 61.0, 6.0):
                     if p_x**2 + p_y**2 <= peripheral_limit_deg**2:
                         for m_m in sweep_mults:
-                            # Sweep 단에서도 동공 필터와 동일 가혹도 적용을 위해 Spatial Filtering 전개 구조 매칭
                             if m_m == 2.0:
                                 k_x_m_mid = k0_m * math.sin(math.radians(p_x)) - m_order * G_x_m
                                 k_y_m_mid = k0_m * math.sin(math.radians(p_y)) - m_order * G_y_m
