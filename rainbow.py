@@ -40,7 +40,6 @@ st.sidebar.markdown("### 🔍 Grating & Hardware Specifications")
 n_d_in = dual_input("Substrate Refractive Index (n_d at 589nm)", 1.0, 3.0, 1.74, 0.01, "n_d", "%.2f")
 u_d_in = dual_input("Substrate Abbe Number (V_d)", 10.0, 100.0, 32.0, 0.1, "v_d", "%.1f")
 
-# [Modification] Refracted grating limit pitch calculation synced exactly at 555nm wavelength spec
 target_lam_limit = 555.0
 ref_index_555 = get_n(target_lam_limit, n_d_in, u_d_in)
 limit_pitch_val = target_lam_limit / ref_index_555
@@ -57,9 +56,14 @@ display_v_fov = dual_input("Display Vertical FOV (Half, °)", 1.0, 45.0, 9.2, 0.
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("**⚙️ Ambient Source Analysis Mode**")
-sim_mode = st.sidebar.radio("Simulation Mode", ["Full Hemisphere Space Scan Mode", "Target Ambient Source Coordinates Mode"], index=0)
+sim_mode = st.sidebar.radio("Simulation Mode", ["Full Hemisphere Space Scan Mode", "Target Ambient Source Coordinates Mode", "Coverwindow Reflection Mode"], index=0)
 
-if sim_mode == "Target Ambient Source Coordinates Mode":
+# [New Feature] Coverwindow Specification UI Panel
+if sim_mode == "Coverwindow Reflection Mode":
+    st.sidebar.markdown("🪟 **[Coverwindow Spec] Ghost Path Setup**")
+    cw_n_d = dual_input("Coverwindow Index (n_d)", 1.0, 3.0, 1.52, 0.01, "cw_n_d", "%.2f")
+    cw_thick = dual_input("Coverwindow Thickness (mm)", 0.1, 5.0, 1.0, 0.05, "cw_thick", "%.2f")
+elif sim_mode == "Target Ambient Source Coordinates Mode":
     st.sidebar.markdown("🔴 **[Mode 2] Target Source Setup**")
     src_spec_x = dual_input("Source Horizontal Incident Angle (X, °)", -90.0, 90.0, -45.0, 0.1, "src_spec_x", "%.1f")
     src_spec_y = dual_input("Source Vertical Incident Angle (Y, °)", -90.0, 90.0, 15.0, 0.1, "src_spec_y", "%.1f")
@@ -93,7 +97,10 @@ with tab1:
     G_x = G_mag * math.cos(math.radians(angle_oc))
     G_y = G_mag * math.sin(math.radians(angle_oc))
     
-    if sim_mode == "Full Hemisphere Space Scan Mode":
+    if sim_mode in ["Full Hemisphere Space Scan Mode", "Coverwindow Reflection Mode"]:
+        # Coverwindow 모드일 경우 격자를 2번 맞는 고차 회절 승수 계산을 위해 m_multiplier 제어 (고스트 수식 대입)
+        m_mult = 2.0 if sim_mode == "Coverwindow Reflection Mode" else 1.0
+        
         for wl in wavelengths:
             k0 = 2 * math.pi / wl
             rgb_color = wl_to_rgb(wl)
@@ -104,8 +111,10 @@ with tab1:
                     if p_x**2 + p_y**2 <= peripheral_limit_deg**2:
                         k_x_per = k0 * math.sin(math.radians(p_x))
                         k_y_per = k0 * math.sin(math.radians(p_y))
-                        k_x_ext = k_x_per - m_order * G_x
-                        k_y_ext = k_y_per - m_order * G_y
+                        
+                        # 역방향 고스트 회절 수식 대입 (k_ext = k_per - m_mult * m * G)
+                        k_x_ext = k_x_per - m_mult * m_order * G_x
+                        k_y_ext = k_y_per - m_mult * m_order * G_y
                         k_ext_mag = math.sqrt(k_x_ext**2 + k_y_ext**2)
                         
                         if k_ext_mag <= k0:
@@ -161,16 +170,13 @@ with tab1:
             f.add_shape(type="circle", x0=-r, y0=-r, x1=r, y1=r, line=dict(color="lightgray", width=1, dash="dash" if r!=60 else "solid"))
             f.add_annotation(x=r*0.707, y=r*0.707, text=f"{r}° Peripheral" if r==60 else f"{r}°", showarrow=False, font=dict(color="gray" if r!=60 else "blue", size=9), xref="x", yref="y")
 
-    # [Modification 1] Simplified and polished chart titles based on user requirements
     with col1:
         st.subheader("🌐 1. Ambient Source Map")
-        st.caption("Displays the coordinates of external light sources in the hemisphere that trigger diffraction noise inside the peripheral vision.")
         fig_src.update_layout(xaxis=dict(title="Ambient Source Horizontal Azimuth Angle (X, °)", range=[-95, 95], scaleanchor="y", scaleratio=1), yaxis=dict(title="Ambient Source Vertical Elevation Angle (Y, °)", range=[-95, 95]), plot_bgcolor="white", hovermode='closest')
         st.plotly_chart(fig_src, use_container_width=True)
 
     with col2:
         st.subheader("👁️ 2. Eye-side Rainbow Map")
-        st.caption("Visualizes where the rainbow flare artifacts physically land on the user's field of view under a fixed gaze condition.")
         fig_eye.update_layout(xaxis=dict(title="Human Eye Field of View Horizontal Angle (Horizontal FOV, °)", range=[-65, 65], scaleanchor="y", scaleratio=1), yaxis=dict(title="Human Eye Field of View Vertical Angle (Vertical FOV, °)", range=[-65, 65]), plot_bgcolor="white", hovermode='closest')
         st.plotly_chart(fig_eye, use_container_width=True)
 
@@ -179,6 +185,10 @@ with tab2:
     st.markdown("#### ⚙️ OC Grating Period (Pitch) Optimization Margin Sweep")
     pitch_arr = np.arange(250.0, 500.0, 2.0)
     sweep_results = []
+    
+    # Sweep 연산 시에도 현재 선택된 모드(Coverwindow 고스트 여부)의 회절 차수 승수를 동적 연동하여 마진 버퍼 통합 추적
+    m_mult_sweep = 2.0 if sim_mode == "Coverwindow Reflection Mode" else 1.0
+    
     for p in pitch_arr:
         noise_count = 0
         G_m = 2 * math.pi / p
@@ -190,7 +200,7 @@ with tab2:
             for p_x in np.arange(-60.0, 61.0, 6.0):
                 for p_y in np.arange(-60.0, 61.0, 6.0):
                     if p_x**2 + p_y**2 <= peripheral_limit_deg**2:
-                        if math.sqrt((k0_m * math.sin(math.radians(p_x)) - m_order * G_x_m)**2 + (k0_m * math.sin(math.radians(p_y)) - m_order * G_y_m)**2) <= k0_m:
+                        if math.sqrt((k0_m * math.sin(math.radians(p_x)) - m_mult_sweep * m_order * G_x_m)**2 + (k0_m * math.sin(math.radians(p_y)) - m_mult_sweep * m_order * G_y_m)**2) <= k0_m:
                             has_noise = True
                             break
                 if has_noise: break
